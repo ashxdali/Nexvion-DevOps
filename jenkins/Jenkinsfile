@@ -7,16 +7,13 @@ pipeline {
     }
 
     environment {
-        PROJECT_NAME = 'Nexvion'
         COMPOSE_FILE = 'docker/docker-compose.yml'
         IMAGE_NAME = 'nexvion-ecommerce:1.0'
     }
 
     stages {
-        stage('Checkout Verification') {
+        stage('Verify Project') {
             steps {
-                echo 'Checking out the Nexvion project workspace.'
-
                 sh '''
                     set -eu
 
@@ -24,21 +21,21 @@ pipeline {
                     test -f application/products.html
                     test -f application/payment.html
                     test -f docker/Dockerfile
-                    test -f docker/docker-compose.yml
+                    test -f "$COMPOSE_FILE"
 
-                    echo "Application and Docker files verified."
+                    echo "Project files verified."
                 '''
             }
         }
 
-        stage('Validate Docker Compose') {
+        stage('Validate Compose') {
             steps {
                 sh '''
                     set -eu
 
                     docker compose -f "$COMPOSE_FILE" config -q
 
-                    echo "Docker Compose configuration is valid."
+                    echo "Compose configuration is valid."
                 '''
             }
         }
@@ -49,22 +46,22 @@ pipeline {
                     set -eu
 
                     docker build \
-                        -f docker/Dockerfile \
-                        -t "$IMAGE_NAME" \
-                        .
+                      -f docker/Dockerfile \
+                      -t "$IMAGE_NAME" .
+
+                    echo "Docker image built successfully."
                 '''
             }
         }
 
-        stage('Verify Application') {
+        stage('Verify Image') {
             steps {
                 sh '''
                     set -eu
 
-                    test -f application/index.html
+                    docker image inspect "$IMAGE_NAME" >/dev/null
 
-                    echo "Application files are present."
-                    echo "Image built: $IMAGE_NAME"
+                    echo "Docker image verified: $IMAGE_NAME"
                 '''
             }
         }
@@ -76,11 +73,11 @@ pipeline {
         }
 
         failure {
-            echo 'Nexvion CI pipeline failed. Review the stage logs.'
+            echo 'Pipeline failed. Review the stage logs.'
         }
 
         always {
-            echo 'Nexvion pipeline execution finished.'
+            echo 'Pipeline execution finished.'
         }
     }
 }
