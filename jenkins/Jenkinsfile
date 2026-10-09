@@ -9,6 +9,7 @@ pipeline {
     environment {
         COMPOSE_FILE = 'docker/docker-compose.yml'
         IMAGE_NAME = 'nexvion-ecommerce:1.0'
+        APP_URL = 'http://localhost:8086/'
     }
 
     stages {
@@ -54,14 +55,35 @@ pipeline {
             }
         }
 
-        stage('Verify Image') {
+        stage('Deploy Application') {
             steps {
                 sh '''
                     set -eu
 
-                    docker image inspect "$IMAGE_NAME" >/dev/null
+                    docker compose -f "$COMPOSE_FILE" up -d --build
 
-                    echo "Docker image verified: $IMAGE_NAME"
+                    echo "Application deployment command completed."
+                '''
+            }
+        }
+
+        stage('Verify Deployment') {
+            steps {
+                sh '''
+                    set -eu
+
+                    for attempt in $(seq 1 12); do
+                        if curl --fail --silent --show-error "$APP_URL" -o /dev/null; then
+                            echo "Website is responding successfully."
+                            exit 0
+                        fi
+
+                        echo "Waiting for website... attempt $attempt of 12"
+                        sleep 5
+                    done
+
+                    echo "Website health verification failed."
+                    exit 1
                 '''
             }
         }
@@ -69,11 +91,11 @@ pipeline {
 
     post {
         success {
-            echo 'Nexvion CI pipeline completed successfully.'
+            echo 'Nexvion CI/CD pipeline completed successfully.'
         }
 
         failure {
-            echo 'Pipeline failed. Review the stage logs.'
+            echo 'Pipeline failed. Review the Console Output.'
         }
 
         always {
