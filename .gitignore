@@ -17,3 +17,11 @@
 .DS_Store
 Thumbs.db
 /security/reports/
+
+# Terraform local files and state
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log

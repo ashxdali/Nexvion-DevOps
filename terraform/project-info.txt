@@ -1,0 +1,4 @@
+Project: Nexvion E-Commerce
+Purpose: DevOps and Cloud-Native Delivery Platform
+Infrastructure as Code: Terraform
+Environment: Local Development
