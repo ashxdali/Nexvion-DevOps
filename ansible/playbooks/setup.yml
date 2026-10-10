@@ -1,0 +1,34 @@
+---
+- name: Configure Nexvion DevOps environment
+  hosts: local
+  gather_facts: true
+
+  tasks:
+    - name: Display operating system information
+      ansible.builtin.debug:
+        msg: "Managing {{ ansible_distribution }} {{ ansible_distribution_version }}"
+
+    - name: Create Nexvion configuration directory
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME }}/nexvion-config"
+        state: directory
+        mode: "0755"
+
+    - name: Create project information file
+      ansible.builtin.copy:
+        dest: "{{ ansible_env.HOME }}/nexvion-config/project-info.txt"
+        content: |
+          Project: Nexvion E-Commerce
+          Purpose: DevOps and Cloud-Native Delivery Platform
+          Configuration Management: Ansible
+          Environment: Local Ubuntu
+        mode: "0644"
+
+    - name: Verify configuration file
+      ansible.builtin.stat:
+        path: "{{ ansible_env.HOME }}/nexvion-config/project-info.txt"
+      register: project_info
+
+    - name: Display verification result
+      ansible.builtin.debug:
+        msg: "Project information file created: {{ project_info.stat.exists }}"
