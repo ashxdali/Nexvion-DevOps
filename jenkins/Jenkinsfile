@@ -13,19 +13,16 @@ pipeline {
     }
 
     stages {
-
         stage('Verify Project') {
             steps {
                 sh '''
                     set -eu
-
                     test -f application/index.html
                     test -f application/products.html
                     test -f application/payment.html
                     test -f docker/Dockerfile
                     test -f "$COMPOSE_FILE"
                     test -f scripts/security-scan.sh
-
                     echo "Project files verified."
                 '''
             }
@@ -35,9 +32,7 @@ pipeline {
             steps {
                 sh '''
                     set -eu
-
                     docker compose -f "$COMPOSE_FILE" config -q
-
                     echo "Compose configuration is valid."
                 '''
             }
@@ -47,11 +42,9 @@ pipeline {
             steps {
                 sh '''
                     set -eu
-
                     docker build \
                         -f docker/Dockerfile \
                         -t "$IMAGE_NAME" .
-
                     echo "Docker image built successfully."
                 '''
             }
@@ -61,11 +54,8 @@ pipeline {
             steps {
                 sh '''
                     set -eu
-
                     chmod +x scripts/security-scan.sh
-
-                    TRIVY_EXIT_CODE=1 \
-                        ./scripts/security-scan.sh "$IMAGE_NAME"
+                    TRIVY_EXIT_CODE=1 ./scripts/security-scan.sh "$IMAGE_NAME"
                 '''
             }
         }
@@ -74,9 +64,7 @@ pipeline {
             steps {
                 sh '''
                     set -eu
-
                     docker compose -f "$COMPOSE_FILE" up -d --build
-
                     echo "Application deployment completed."
                 '''
             }
@@ -86,17 +74,14 @@ pipeline {
             steps {
                 sh '''
                     set -eu
-
                     for attempt in $(seq 1 12); do
                         if curl --fail --silent --show-error "$APP_URL" -o /dev/null; then
                             echo "Website is responding successfully."
                             exit 0
                         fi
-
                         echo "Waiting for website... attempt $attempt of 12"
                         sleep 5
                     done
-
                     echo "Website health verification failed."
                     exit 1
                 '''
@@ -104,23 +89,22 @@ pipeline {
         }
     }
 
-    
-	post {
-    success {
-        echo 'Nexvion CI/CD pipeline completed successfully.'
-    }
+    post {
+        success {
+            echo 'Nexvion CI/CD pipeline completed successfully.'
+        }
 
-    failure {
-        echo 'Pipeline failed. Review the Console Output.'
-    }
+        failure {
+            echo 'Pipeline failed. Review the Console Output.'
+        }
 
-    always {
-        archiveArtifacts(
-            artifacts: 'security/reports/nexvion-trivy-report.json',
-            allowEmptyArchive: true,
-            fingerprint: true
-        )
-
-        echo 'Pipeline execution finished.'
+        always {
+            archiveArtifacts(
+                artifacts: 'security/reports/nexvion-trivy-report.json',
+                allowEmptyArchive: true,
+                fingerprint: true
+            )
+            echo 'Pipeline execution finished.'
+        }
     }
 }
