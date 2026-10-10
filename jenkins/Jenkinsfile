@@ -42,6 +42,15 @@ pipeline {
         }
 
         stage('Build Docker Image') {
+stage('Security Scan') {
+    steps {
+        sh '''
+            set -eu
+            chmod +x scripts/security-scan.sh
+            TRIVY_EXIT_CODE=1 ./scripts/security-scan.sh "$IMAGE_NAME"
+        '''
+    }
+}
             steps {
                 sh '''
                     set -eu
