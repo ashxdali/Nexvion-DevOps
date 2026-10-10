@@ -1,0 +1,101 @@
+NEXVION INCIDENT ANALYSIS REPORT
+=============================================
+Generated: 2026-10-11T01:01:40+05:30
+Input file: ai/incident-analysis/sample-incidents.log
+Total lines analyzed: 6
+Potential findings: 6
+
+SEVERITY SUMMARY
+---------------------------------------------
+CRITICAL: 1
+HIGH: 3
+MEDIUM: 1
+LOW: 1
+
+FINDINGS AND RECOMMENDATIONS
+---------------------------------------------
+
+Finding 1: Application error
+Log line: 1
+Suggested severity: HIGH
+Log entry: 2026-10-11 01:10:00 ERROR Application failed to load configuration
+Possible cause: The application may have encountered an internal error.
+Recommended investigation:
+  - Inspect the surrounding log entries.
+  - Check application configuration and recent changes.
+  - Review the application pod status and restart count.
+Suggested commands:
+  $ kubectl get pods -n nexvion
+  $ kubectl logs -n nexvion deployment/nexvion-web --tail=100
+
+Finding 2: Warning
+Log line: 2
+Suggested severity: LOW
+Log entry: 2026-10-11 01:10:05 WARNING High response time detected
+Possible cause: The application has reported a condition that may need attention.
+Recommended investigation:
+  - Review the complete warning message.
+  - Check whether the warning repeats or affects functionality.
+Suggested commands:
+  $ kubectl get events -n nexvion --sort-by=.lastTimestamp
+
+Finding 3: Application error
+Log line: 3
+Suggested severity: HIGH
+Log entry: 2026-10-11 01:10:10 ERROR Connection refused while connecting to service
+Possible cause: The application may have encountered an internal error.
+Recommended investigation:
+  - Inspect the surrounding log entries.
+  - Check application configuration and recent changes.
+  - Review the application pod status and restart count.
+Suggested commands:
+  $ kubectl get pods -n nexvion
+  $ kubectl logs -n nexvion deployment/nexvion-web --tail=100
+
+Finding 4: Connection failure
+Log line: 3
+Suggested severity: HIGH
+Log entry: 2026-10-11 01:10:10 ERROR Connection refused while connecting to service
+Possible cause: A service may be unavailable or refusing connections.
+Recommended investigation:
+  - Verify that the destination service is running.
+  - Check service names, ports, endpoints, and network policies.
+  - Review the affected container's logs.
+Suggested commands:
+  $ kubectl get services,endpoints -n nexvion
+  $ kubectl get pods -n nexvion
+
+Finding 5: Timeout
+Log line: 4
+Suggested severity: MEDIUM
+Log entry: 2026-10-11 01:10:15 TIMEOUT Database request timed out
+Possible cause: A request or operation may be taking longer than expected.
+Recommended investigation:
+  - Check application response times and resource usage.
+  - Inspect network connectivity and dependency availability.
+  - Look for repeated timeout entries.
+Suggested commands:
+  $ kubectl top pods -n nexvion
+  $ kubectl get pods -n nexvion
+
+Finding 6: Resource pressure
+Log line: 5
+Suggested severity: CRITICAL
+Log entry: 2026-10-11 01:10:20 CRITICAL Container terminated due to OOMKilled
+Possible cause: A process or container may be experiencing memory pressure.
+Recommended investigation:
+  - Check container restart counts and termination reasons.
+  - Review memory requests, limits, and recent workload changes.
+  - Check node memory pressure before changing resource limits.
+Suggested commands:
+  $ kubectl get pods -n nexvion
+  $ kubectl describe pods -n nexvion
+  $ kubectl top pods -n nexvion
+
+IMPORTANT LIMITATIONS
+---------------------------------------------
+This version uses keyword-based rules, not a real AI model.
+Severity and root-cause suggestions are preliminary.
+Review the original logs and verify findings before acting.
+Commands are recommendations and have not been executed.
+
