@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexvion-web
+  namespace: nexvion
+  labels:
+    app: nexvion-web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nexvion-web
+  template:
+    metadata:
+      labels:
+        app: nexvion-web
+    spec:
+      containers:
+        - name: nexvion-web
+          image: nexvion-ecommerce:1.0
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 80
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 300m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 15
+            periodSeconds: 20
