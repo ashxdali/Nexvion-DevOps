@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-
-set -euo pipefail
+set -Eeuo pipefail
 
 IMAGE_NAME="${1:-nexvion-ecommerce:1.0}"
 REPORT_DIR="security/reports"
@@ -15,16 +14,19 @@ echo "========================================"
 echo "Image: $IMAGE_NAME"
 echo "Policy: Fail on HIGH or CRITICAL vulnerabilities"
 
-# Save the complete JSON report before applying the security gate.
-trivy image \
+# Generate the complete JSON report.
+if ! trivy image \
   --scanners vuln \
   --format json \
   --output "$REPORT_FILE" \
-  "$IMAGE_NAME"
+  "$IMAGE_NAME"; then
+    echo "ERROR: Trivy could not complete the vulnerability scan."
+    exit 1
+fi
 
 echo "Security report saved: $REPORT_FILE"
 
-# Fail the pipeline if HIGH or CRITICAL vulnerabilities are found.
+# Fail when HIGH or CRITICAL vulnerabilities are detected.
 trivy image \
   --scanners vuln \
   --severity HIGH,CRITICAL \
