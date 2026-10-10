@@ -104,17 +104,23 @@ pipeline {
         }
     }
 
-    post {
-        success {
-            echo 'Nexvion CI/CD pipeline completed successfully.'
-        }
+    
+	post {
+    success {
+        echo 'Nexvion CI/CD pipeline completed successfully.'
+    }
 
-        failure {
-            echo 'Pipeline failed. Review the Console Output.'
-        }
+    failure {
+        echo 'Pipeline failed. Review the Console Output.'
+    }
 
-        always {
-            echo 'Pipeline execution finished.'
-        }
+    always {
+        archiveArtifacts(
+            artifacts: 'security/reports/nexvion-trivy-report.json',
+            allowEmptyArchive: true,
+            fingerprint: true
+        )
+
+        echo 'Pipeline execution finished.'
     }
 }
