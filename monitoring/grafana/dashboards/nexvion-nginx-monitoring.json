@@ -1,0 +1,77 @@
+{
+  "title": "Nexvion NGINX Monitoring",
+  "uid": "nexvion-nginx-monitoring",
+  "tags": ["nexvion", "devops", "nginx", "prometheus"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "NGINX Availability",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cg0tzsxlaij9ca"
+      },
+      "targets": [
+        {
+          "expr": "nginx_up",
+          "legendFormat": "NGINX Up",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": 2,
+      "title": "Active Connections",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cg0tzsxlaij9ca"
+      },
+      "targets": [
+        {
+          "expr": "nginx_connections_active",
+          "legendFormat": "Active Connections",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 0
+      }
+    },
+    {
+      "id": 3,
+      "title": "Total HTTP Requests",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "cg0tzsxlaij9ca"
+      },
+      "targets": [
+        {
+          "expr": "nginx_http_requests_total",
+          "legendFormat": "HTTP Requests",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 0
+      }
+    }
+  ]
+}
