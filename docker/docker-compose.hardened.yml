@@ -1,0 +1,39 @@
+services:
+  nexvion-web-hardened:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.hardened
+
+    image: nexvion-ecommerce:hardened
+
+    container_name: nexvion-web-hardened
+
+    ports:
+      - "18086:8080"
+
+    restart: unless-stopped
+
+    read_only: true
+
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,uid=101,gid=101
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    networks:
+      - nexvion-hardened-network
+
+networks:
+  nexvion-hardened-network:
+    driver: bridge
