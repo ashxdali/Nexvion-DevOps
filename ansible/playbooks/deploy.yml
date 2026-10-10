@@ -1,0 +1,53 @@
+---
+- name: Deploy Nexvion E-Commerce Application
+  hosts: local
+  gather_facts: false
+
+  vars:
+    project_dir: "{{ playbook_dir }}/../.."
+    compose_file: "{{ playbook_dir }}/../../docker/docker-compose.yml"
+    app_url: "http://localhost:8086/"
+
+  tasks:
+    - name: Validate Docker Compose configuration
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - -f
+          - "{{ compose_file }}"
+          - config
+          - -q
+      changed_when: false
+
+    - name: Deploy Nexvion application
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - -f
+          - "{{ compose_file }}"
+          - up
+          - -d
+      args:
+        chdir: "{{ project_dir }}"
+      register: deployment_result
+      changed_when: >-
+        'Started' in deployment_result.stderr or
+        'Created' in deployment_result.stderr or
+        'Recreated' in deployment_result.stderr
+
+    - name: Verify website availability
+      ansible.builtin.uri:
+        url: "{{ app_url }}"
+        method: GET
+        status_code: 200
+        return_content: false
+      register: website_check
+      retries: 12
+      delay: 5
+      until: website_check.status == 200
+
+    - name: Display deployment result
+      ansible.builtin.debug:
+        msg: "Nexvion deployment successful. Website returned HTTP {{ website_check.status }}."
