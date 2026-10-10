@@ -16,10 +16,12 @@
 # OS files
 .DS_Store
 Thumbs.db
+
+# Generated security reports
 /security/reports/
 
 # Terraform local files and state
-**/.terraform/*
+**/.terraform/
 *.tfstate
 *.tfstate.*
 *.tfplan
@@ -30,6 +32,5 @@ crash.*.log
 __pycache__/
 *.py[cod]
 
-# Python cache files
-__pycache__/
-*.py[cod]
+# Jenkins backups
+jenkins/Jenkinsfile.backup
