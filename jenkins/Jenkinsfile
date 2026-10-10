@@ -13,6 +13,7 @@ pipeline {
     }
 
     stages {
+
         stage('Verify Project') {
             steps {
                 sh '''
@@ -23,6 +24,7 @@ pipeline {
                     test -f application/payment.html
                     test -f docker/Dockerfile
                     test -f "$COMPOSE_FILE"
+                    test -f scripts/security-scan.sh
 
                     echo "Project files verified."
                 '''
@@ -42,24 +44,28 @@ pipeline {
         }
 
         stage('Build Docker Image') {
-stage('Security Scan') {
-    steps {
-        sh '''
-            set -eu
-            chmod +x scripts/security-scan.sh
-            TRIVY_EXIT_CODE=1 ./scripts/security-scan.sh "$IMAGE_NAME"
-        '''
-    }
-}
             steps {
                 sh '''
                     set -eu
 
                     docker build \
-                      -f docker/Dockerfile \
-                      -t "$IMAGE_NAME" .
+                        -f docker/Dockerfile \
+                        -t "$IMAGE_NAME" .
 
                     echo "Docker image built successfully."
+                '''
+            }
+        }
+
+        stage('Security Scan') {
+            steps {
+                sh '''
+                    set -eu
+
+                    chmod +x scripts/security-scan.sh
+
+                    TRIVY_EXIT_CODE=1 \
+                        ./scripts/security-scan.sh "$IMAGE_NAME"
                 '''
             }
         }
@@ -71,7 +77,7 @@ stage('Security Scan') {
 
                     docker compose -f "$COMPOSE_FILE" up -d --build
 
-                    echo "Application deployment command completed."
+                    echo "Application deployment completed."
                 '''
             }
         }
