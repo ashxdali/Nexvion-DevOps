@@ -34,3 +34,15 @@ __pycache__/
 
 # Jenkins backups
 jenkins/Jenkinsfile.backup
+
+# Generated Kubernetes log collections
+/logging/collected/
+
+# Generated log and incident analysis reports
+/logging/reports/collected-*-analysis.txt
+
+# Generated incident analysis reports
+/logging/reports/*.txt
+
+# Python cache directories
+__pycache__/
