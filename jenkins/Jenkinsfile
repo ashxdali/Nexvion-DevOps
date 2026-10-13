@@ -33,6 +33,25 @@ pipeline {
             }
         }
 
+	        stage('Secret Scan') {
+            steps {
+                sh '''
+                    set -eu
+
+                    trivy fs \
+                        --scanners secret \
+                        --skip-dirs .git \
+                        --skip-dirs logging/collected \
+                        --skip-dirs logging/reports \
+                        --exit-code 1 \
+                        --format table \
+                        .
+
+                    echo "Trivy repository secret scan passed."
+                '''
+            }
+        }
+
         stage('Validate Hardened Compose') {
             steps {
                 sh '''
