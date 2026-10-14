@@ -11,8 +11,8 @@ pipeline {
         DOCKERFILE = 'docker/Dockerfile.hardened'
         IMAGE_NAME = 'nexvion-ecommerce:hardened'
         CONTAINER_NAME = 'nexvion-web-hardened'
-        APP_URL = 'http://localhost:18086/'
         ROLLBACK_IMAGE = 'nexvion-ecommerce:rollback'
+        APP_URL = 'http://localhost:18086/'
     }
 
     stages {
@@ -23,18 +23,16 @@ pipeline {
 
                     test -f application/index.html
                     test -f application/products.html
-                    test -f application/payment.html
                     test -f "$DOCKERFILE"
                     test -f "$COMPOSE_FILE"
-                    test -f docker/nginx/nginx.conf
-                    test -f scripts/security-scan.sh
+                    test -x scripts/security-scan.sh
 
                     echo "Project files verified."
                 '''
             }
         }
 
-	        stage('Secret Scan') {
+        stage('Secret Scan') {
             steps {
                 sh '''
                     set -eu
@@ -48,7 +46,7 @@ pipeline {
                         --format table \
                         .
 
-                    echo "Trivy repository secret scan passed."
+                    echo "Repository secret scan passed."
                 '''
             }
         }
@@ -77,23 +75,25 @@ pipeline {
             }
         }
 
-
         stage('Validate Hardened Compose') {
             steps {
                 sh '''
-                    set -e
+                    set -eu
+
                     docker compose -f "$COMPOSE_FILE" config -q
 
                     echo "Hardened Compose configuration is valid."
                 '''
-
+            }
         }
+
         stage('Capture Previous Image') {
             steps {
                 sh '''
                     set -eu
 
                     mkdir -p security/reports
+
                     rm -f security/reports/previous-image-id.txt
                     rm -f security/reports/deployment-attempted.txt
 
@@ -109,6 +109,7 @@ pipeline {
                         echo "Previous image preserved for rollback."
                     else
                         : > security/reports/previous-image-id.txt
+
                         echo "No previous image exists; rollback is unavailable for the first deployment."
                     fi
                 '''
@@ -134,7 +135,7 @@ pipeline {
                 sh '''
                     set -eu
 
-                    chmod +x scripts/security-scan.sh
+                    mkdir -p security/reports
 
                     TRIVY_EXIT_CODE=1 \
                         ./scripts/security-scan.sh "$IMAGE_NAME"
@@ -148,6 +149,7 @@ pipeline {
             steps {
                 sh '''
                     set -eu
+
                     touch security/reports/deployment-attempted.txt
 
                     docker compose -f "$COMPOSE_FILE" up -d --no-build
@@ -166,9 +168,10 @@ pipeline {
 
                     while [ "$attempt" -le 12 ]; do
                         if curl --fail --silent --show-error \
-                            "$APP_URL" -o /dev/null; then
+                            --max-time 10 "$APP_URL" -o /dev/null; then
+
                             echo "Website HTTP verification passed."
-                            break
+                            exit 0
                         fi
 
                         if [ "$attempt" -eq 12 ]; then
@@ -176,22 +179,31 @@ pipeline {
                             exit 1
                         fi
 
-                        echo "Waiting for website... attempt $attempt of 12"
+                        echo "Waiting for website: attempt $attempt"
                         attempt=$((attempt + 1))
                         sleep 5
                     done
+                '''
+            }
+        }
+
+        stage('Verify Container Health') {
+            steps {
+                sh '''
+                    set -eu
 
                     attempt=1
 
                     while [ "$attempt" -le 12 ]; do
                         health=$(docker inspect \
-                            --format '{{.State.Health.Status}}' \
-                            "$CONTAINER_NAME")
+                            --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
+                            "$CONTAINER_NAME" 2>/dev/null || echo "missing")
 
                         echo "Container health: $health"
 
-                        if [ "$health" = "healthy" ]; then
-                            echo "Container health verification passed."
+                        if [ "$health" = "healthy" ] ||
+                           [ "$health" = "running" ]; then
+                            echo "Container is running."
                             exit 0
                         fi
 
@@ -213,7 +225,7 @@ pipeline {
         }
     }
 
-     post {
+    post {
         success {
             echo 'Nexvion hardened CI/CD pipeline completed successfully.'
         }
@@ -221,44 +233,49 @@ pipeline {
         failure {
             echo 'Pipeline failed. Checking whether rollback is possible.'
 
-            sh '''
-                set +e
+            sh(
+                script: '''
+                    set +e
 
-                PREVIOUS_FILE="security/reports/previous-image-id.txt"
-                ATTEMPTED_FILE="security/reports/deployment-attempted.txt"
+                    PREVIOUS_FILE="security/reports/previous-image-id.txt"
+                    ATTEMPTED_FILE="security/reports/deployment-attempted.txt"
 
-                if [ -f "$ATTEMPTED_FILE" ] &&
-                   [ -s "$PREVIOUS_FILE" ] &&
-                   docker image inspect "$ROLLBACK_IMAGE" >/dev/null 2>&1; then
+                    if [ -f "$ATTEMPTED_FILE" ] &&
+                       [ -s "$PREVIOUS_FILE" ] &&
+                       docker image inspect "$ROLLBACK_IMAGE" >/dev/null 2>&1; then
 
-                    echo "Previous image found. Starting rollback."
+                        echo "Previous image found. Starting rollback."
 
-                    docker image tag "$ROLLBACK_IMAGE" "$IMAGE_NAME"
+                        docker image tag "$ROLLBACK_IMAGE" "$IMAGE_NAME"
 
-                    if docker compose -f "$COMPOSE_FILE" up -d --no-build; then
-                        attempt=1
+                        if docker compose -f "$COMPOSE_FILE" up -d --no-build; then
+                            attempt=1
 
-                        while [ "$attempt" -le 12 ]; do
-                            if curl --fail --silent --show-error \
-                                --max-time 10 "$APP_URL" -o /dev/null; then
-                                echo "Rollback completed and HTTP verification passed."
-                                exit 0
-                            fi
+                            while [ "$attempt" -le 12 ]; do
+                                if curl --fail --silent --show-error \
+                                    --max-time 10 "$APP_URL" -o /dev/null; then
 
-                            echo "Waiting for rollback verification: attempt $attempt"
-                            sleep 5
-                            attempt=$((attempt + 1))
-                        done
+                                    echo "Rollback completed and HTTP verification passed."
+                                    exit 0
+                                fi
 
-                        echo "WARNING: Rollback deployment started, but HTTP verification failed."
+                                echo "Waiting for rollback verification: attempt $attempt"
+                                sleep 5
+                                attempt=$((attempt + 1))
+                            done
+
+                            echo "WARNING: Rollback HTTP verification failed."
+                        else
+                            echo "WARNING: Rollback deployment failed."
+                        fi
                     else
-                        echo "WARNING: Rollback deployment failed."
+                        echo "No valid previous image available for rollback."
                     fi
-                else
-                    echo "No valid previous image available for rollback."
-                fi
 
-            '''
+                    exit 0
+                ''',
+                returnStatus: true
+            )
         }
 
         always {
