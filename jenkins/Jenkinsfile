@@ -12,6 +12,7 @@ pipeline {
         IMAGE_NAME = 'nexvion-ecommerce:hardened'
         CONTAINER_NAME = 'nexvion-web-hardened'
         APP_URL = 'http://localhost:18086/'
+        ROLLBACK_IMAGE = 'nexvion-ecommerce:rollback'
     }
 
     stages {
@@ -52,14 +53,64 @@ pipeline {
             }
         }
 
-        stage('Validate Hardened Compose') {
+        stage('Dependency Scan') {
             steps {
                 sh '''
                     set -eu
 
+                    mkdir -p security/reports
+
+                    trivy fs \
+                        --scanners vuln \
+                        --skip-dirs .git \
+                        --skip-dirs logging/collected \
+                        --skip-dirs logging/reports \
+                        --format json \
+                        --output security/reports/nexvion-dependency-report.json \
+                        --severity HIGH,CRITICAL \
+                        --ignore-unfixed \
+                        --exit-code 1 \
+                        .
+
+                    echo "Dependency vulnerability scan passed."
+                '''
+            }
+        }
+
+
+        stage('Validate Hardened Compose') {
+            steps {
+                sh '''
+                    set -e
                     docker compose -f "$COMPOSE_FILE" config -q
 
                     echo "Hardened Compose configuration is valid."
+                '''
+
+        }
+        stage('Capture Previous Image') {
+            steps {
+                sh '''
+                    set -eu
+
+                    mkdir -p security/reports
+                    rm -f security/reports/previous-image-id.txt
+                    rm -f security/reports/deployment-attempted.txt
+
+                    if docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
+                        PREVIOUS_IMAGE_ID=$(docker image inspect \
+                            --format '{{.Id}}' "$IMAGE_NAME")
+
+                        docker image tag "$PREVIOUS_IMAGE_ID" "$ROLLBACK_IMAGE"
+
+                        printf '%s\\n' "$PREVIOUS_IMAGE_ID" \
+                            > security/reports/previous-image-id.txt
+
+                        echo "Previous image preserved for rollback."
+                    else
+                        : > security/reports/previous-image-id.txt
+                        echo "No previous image exists; rollback is unavailable for the first deployment."
+                    fi
                 '''
             }
         }
@@ -97,6 +148,7 @@ pipeline {
             steps {
                 sh '''
                     set -eu
+                    touch security/reports/deployment-attempted.txt
 
                     docker compose -f "$COMPOSE_FILE" up -d --no-build
 
@@ -161,18 +213,57 @@ pipeline {
         }
     }
 
-    post {
+     post {
         success {
             echo 'Nexvion hardened CI/CD pipeline completed successfully.'
         }
 
         failure {
-            echo 'Pipeline failed. Review the Console Output.'
+            echo 'Pipeline failed. Checking whether rollback is possible.'
+
+            sh '''
+                set +e
+
+                PREVIOUS_FILE="security/reports/previous-image-id.txt"
+                ATTEMPTED_FILE="security/reports/deployment-attempted.txt"
+
+                if [ -f "$ATTEMPTED_FILE" ] &&
+                   [ -s "$PREVIOUS_FILE" ] &&
+                   docker image inspect "$ROLLBACK_IMAGE" >/dev/null 2>&1; then
+
+                    echo "Previous image found. Starting rollback."
+
+                    docker image tag "$ROLLBACK_IMAGE" "$IMAGE_NAME"
+
+                    if docker compose -f "$COMPOSE_FILE" up -d --no-build; then
+                        attempt=1
+
+                        while [ "$attempt" -le 12 ]; do
+                            if curl --fail --silent --show-error \
+                                --max-time 10 "$APP_URL" -o /dev/null; then
+                                echo "Rollback completed and HTTP verification passed."
+                                exit 0
+                            fi
+
+                            echo "Waiting for rollback verification: attempt $attempt"
+                            sleep 5
+                            attempt=$((attempt + 1))
+                        done
+
+                        echo "WARNING: Rollback deployment started, but HTTP verification failed."
+                    else
+                        echo "WARNING: Rollback deployment failed."
+                    fi
+                else
+                    echo "No valid previous image available for rollback."
+                fi
+
+            '''
         }
 
         always {
             archiveArtifacts(
-                artifacts: 'security/reports/nexvion-trivy-report.json',
+                artifacts: 'security/reports/*.json,security/reports/*.txt',
                 allowEmptyArchive: true,
                 fingerprint: true
             )
