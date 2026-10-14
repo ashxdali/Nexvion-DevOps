@@ -1,29 +1,30 @@
 pipeline {
     agent any
 
-    options {
-        timestamps()
-        disableConcurrentBuilds()
-    }
-
     environment {
-        COMPOSE_FILE = 'docker/docker-compose.hardened.yml'
-        DOCKERFILE = 'docker/Dockerfile.hardened'
         IMAGE_NAME = 'nexvion-ecommerce:hardened'
-        CONTAINER_NAME = 'nexvion-web-hardened'
         ROLLBACK_IMAGE = 'nexvion-ecommerce:rollback'
+        COMPOSE_FILE = 'docker/docker-compose.hardened.yml'
         APP_URL = 'http://localhost:18086/'
     }
 
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        timeout(time: 30, unit: 'MINUTES')
+    }
+
     stages {
-        stage('Verify Project') {
+        stage('Checkout and Validate Project') {
             steps {
+                checkout scm
+
                 sh '''
                     set -eu
 
                     test -f application/index.html
                     test -f application/products.html
-                    test -f "$DOCKERFILE"
+                    test -f docker/Dockerfile.hardened
                     test -f "$COMPOSE_FILE"
                     test -x scripts/security-scan.sh
 
@@ -36,6 +37,8 @@ pipeline {
             steps {
                 sh '''
                     set -eu
+
+                    mkdir -p security/reports
 
                     trivy fs \
                         --scanners secret \
@@ -51,29 +54,6 @@ pipeline {
             }
         }
 
-        stage('Dependency Scan') {
-            steps {
-                sh '''
-                    set -eu
-
-                    mkdir -p security/reports
-
-                    trivy fs \
-                        --scanners vuln \
-                        --skip-dirs .git \
-                        --skip-dirs logging/collected \
-                        --skip-dirs logging/reports \
-                        --format json \
-                        --output security/reports/nexvion-dependency-report.json \
-                        --severity HIGH,CRITICAL \
-                        --ignore-unfixed \
-                        --exit-code 1 \
-                        .
-
-                    echo "Dependency vulnerability scan passed."
-                '''
-            }
-        }
 
         stage('Validate Hardened Compose') {
             steps {
@@ -82,7 +62,7 @@ pipeline {
 
                     docker compose -f "$COMPOSE_FILE" config -q
 
-                    echo "Hardened Compose configuration is valid."
+                    echo "Hardened Docker Compose configuration is valid."
                 '''
             }
         }
@@ -121,9 +101,9 @@ pipeline {
                 sh '''
                     set -eu
 
-                    docker build \
-                        -f "$DOCKERFILE" \
-                        -t "$IMAGE_NAME" .
+                    docker compose \
+                        -f "$COMPOSE_FILE" \
+                        build --pull
 
                     echo "Hardened Docker image built successfully."
                 '''
@@ -145,6 +125,27 @@ pipeline {
             }
         }
 
+        stage('Dependency / Image Vulnerability Scan') {
+            steps {
+                sh '''
+                    set -eu
+
+                    mkdir -p security/reports
+
+                    trivy image \
+                        --scanners vuln \
+                        --format json \
+                        --output security/reports/nexvion-trivy-report.json \
+                        --severity HIGH,CRITICAL \
+                        --ignore-unfixed \
+                        --exit-code 1 \
+                        "$IMAGE_NAME"
+
+                    echo "Image vulnerability report generated."
+                '''
+            }
+        }
+
         stage('Deploy Hardened Application') {
             steps {
                 sh '''
@@ -152,7 +153,9 @@ pipeline {
 
                     touch security/reports/deployment-attempted.txt
 
-                    docker compose -f "$COMPOSE_FILE" up -d --no-build
+                    docker compose \
+                        -f "$COMPOSE_FILE" \
+                        up -d --no-build
 
                     echo "Hardened application deployment completed."
                 '''
@@ -164,25 +167,12 @@ pipeline {
                 sh '''
                     set -eu
 
-                    attempt=1
+                    curl --fail --silent --show-error \
+                        --max-time 10 \
+                        "$APP_URL" \
+                        -o /dev/null
 
-                    while [ "$attempt" -le 12 ]; do
-                        if curl --fail --silent --show-error \
-                            --max-time 10 "$APP_URL" -o /dev/null; then
-
-                            echo "Website HTTP verification passed."
-                            exit 0
-                        fi
-
-                        if [ "$attempt" -eq 12 ]; then
-                            echo "Website HTTP verification failed."
-                            exit 1
-                        fi
-
-                        echo "Waiting for website: attempt $attempt"
-                        attempt=$((attempt + 1))
-                        sleep 5
-                    done
+                    echo "HTTP deployment verification passed."
                 '''
             }
         }
@@ -192,90 +182,83 @@ pipeline {
                 sh '''
                     set -eu
 
-                    attempt=1
+                    CONTAINER_NAME='nexvion-web-hardened'
 
-                    while [ "$attempt" -le 12 ]; do
-                        health=$(docker inspect \
-                            --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
-                            "$CONTAINER_NAME" 2>/dev/null || echo "missing")
+                    for attempt in $(seq 1 12); do
+                        STATUS=$(docker inspect \
+                            --format '{{.State.Status}}' \
+                            "$CONTAINER_NAME" 2>/dev/null || true)
 
-                        echo "Container health: $health"
+                        HEALTH=$(docker inspect \
+                            --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}not-configured{{end}}' \
+                            "$CONTAINER_NAME" 2>/dev/null || true)
 
-                        if [ "$health" = "healthy" ] ||
-                           [ "$health" = "running" ]; then
-                            echo "Container is running."
+                        if [ "$STATUS" = "running" ] && [ "$HEALTH" = "healthy" ]; then
+                            echo "Container is running and healthy."
                             exit 0
                         fi
 
-                        if [ "$health" = "unhealthy" ]; then
-                            echo "Container reported unhealthy."
-                            exit 1
-                        fi
-
-                        if [ "$attempt" -eq 12 ]; then
-                            echo "Container did not become healthy in time."
-                            exit 1
-                        fi
-
-                        attempt=$((attempt + 1))
+                        echo "Waiting for container health: status=$STATUS health=$HEALTH"
                         sleep 5
                     done
+
+                    echo "Container failed health verification."
+                    exit 1
                 '''
             }
         }
     }
 
     post {
-        success {
-            echo 'Nexvion hardened CI/CD pipeline completed successfully.'
-        }
-
         failure {
-            echo 'Pipeline failed. Checking whether rollback is possible.'
+            script {
+                echo 'Pipeline failed. Checking whether rollback is possible.'
 
-            sh(
-                script: '''
-                    set +e
+                sh(
+                    script: '''
+                        set +e
 
-                    PREVIOUS_FILE="security/reports/previous-image-id.txt"
-                    ATTEMPTED_FILE="security/reports/deployment-attempted.txt"
+                        PREVIOUS_FILE='security/reports/previous-image-id.txt'
+                        ATTEMPTED_FILE='security/reports/deployment-attempted.txt'
 
-                    if [ -f "$ATTEMPTED_FILE" ] &&
-                       [ -s "$PREVIOUS_FILE" ] &&
-                       docker image inspect "$ROLLBACK_IMAGE" >/dev/null 2>&1; then
+                        if [ ! -f "$ATTEMPTED_FILE" ]; then
+                            echo "Deployment was not attempted; rollback is not required."
+                            exit 0
+                        fi
 
-                        echo "Previous image found. Starting rollback."
+                        if [ ! -s "$PREVIOUS_FILE" ]; then
+                            echo "No previous image ID is available; automatic rollback is not possible."
+                            exit 0
+                        fi
+
+                        if ! docker image inspect "$ROLLBACK_IMAGE" >/dev/null 2>&1; then
+                            echo "Rollback image is unavailable."
+                            exit 1
+                        fi
 
                         docker image tag "$ROLLBACK_IMAGE" "$IMAGE_NAME"
 
-                        if docker compose -f "$COMPOSE_FILE" up -d --no-build; then
-                            attempt=1
-
-                            while [ "$attempt" -le 12 ]; do
-                                if curl --fail --silent --show-error \
-                                    --max-time 10 "$APP_URL" -o /dev/null; then
-
-                                    echo "Rollback completed and HTTP verification passed."
-                                    exit 0
-                                fi
-
-                                echo "Waiting for rollback verification: attempt $attempt"
-                                sleep 5
-                                attempt=$((attempt + 1))
-                            done
-
-                            echo "WARNING: Rollback HTTP verification failed."
-                        else
-                            echo "WARNING: Rollback deployment failed."
+                        if ! docker compose -f "$COMPOSE_FILE" up -d --no-build; then
+                            echo "Rollback deployment command failed."
+                            exit 1
                         fi
-                    else
-                        echo "No valid previous image available for rollback."
-                    fi
 
-                    exit 0
-                ''',
-                returnStatus: true
-            )
+                        for attempt in $(seq 1 12); do
+                            if curl --fail --silent --show-error \
+                                --max-time 10 "$APP_URL" -o /dev/null; then
+                                echo "Rollback completed; HTTP verification passed."
+                                exit 0
+                            fi
+
+                            sleep 5
+                        done
+
+                        echo "Rollback attempted, but HTTP verification did not succeed."
+                        exit 1
+                    ''',
+                    returnStatus: true
+                )
+            }
         }
 
         always {
@@ -286,6 +269,10 @@ pipeline {
             )
 
             echo 'Pipeline execution finished.'
+        }
+
+        success {
+            echo 'Nexvion hardened CI/CD pipeline completed successfully.'
         }
     }
 }
